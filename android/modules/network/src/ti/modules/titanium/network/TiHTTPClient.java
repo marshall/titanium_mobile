@@ -858,22 +858,26 @@ public class TiHTTPClient
 		return 0;
 	}
 
+	private static ThreadSafeClientConnManager connManager;
+	private static HttpParams params;
+
 	public void send(Object userData)
 		throws MethodNotSupportedException
 	{
-		if (client == null) {
-			SchemeRegistry registry = new SchemeRegistry();
-			registry.register(new Scheme("http", PlainSocketFactory.getSocketFactory(), 80));
-
-			HttpParams params = new BasicHttpParams();
-			ConnManagerParams.setMaxTotalConnections(params, 200);
-			ConnPerRouteBean connPerRoute = new ConnPerRouteBean(20);
+		if (connManager == null) {
+			params = new BasicHttpParams();
+			ConnManagerParams.setMaxTotalConnections(params, 10);
+			ConnPerRouteBean connPerRoute = new ConnPerRouteBean(5);
 			ConnManagerParams.setMaxConnectionsPerRoute(params, connPerRoute);
 
 			HttpProtocolParams.setUseExpectContinue(params, false);
 			HttpProtocolParams.setVersion(params, HttpVersion.HTTP_1_1);
-
-			client = new DefaultHttpClient(new ThreadSafeClientConnManager(params, registry), params);
+			SchemeRegistry registry = new SchemeRegistry();
+			registry.register(new Scheme("http", PlainSocketFactory.getSocketFactory(), 80));
+			connManager = new ThreadSafeClientConnManager(params, registry);
+		}
+		if (client == null) {
+			client = new DefaultHttpClient(connManager, params);
 		}
 		aborted = false;
 
@@ -1064,6 +1068,9 @@ public class TiHTTPClient
 				connected = false;
 				setResponseText(result);
 				setReadyState(READY_STATE_DONE);
+
+				client.getConnectionManager().closeExpiredConnections();
+				client.getConnectionManager().closeIdleConnections(0, TimeUnit.NANOSECONDS);
 			} catch(Throwable t) {
 				Log.d(LCAT, "clearing the expired and idle connections");
 				client.getConnectionManager().closeExpiredConnections();
